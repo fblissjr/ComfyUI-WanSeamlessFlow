@@ -11,6 +11,10 @@ ComfyUI-WanSeamlessFlow/
     └── optimization.py  # Embedding optimization algorithms
 ```
 
+## key notes - needs modifications, for now, to Kijai's wanvideo wrapper
+
+- see `./reference/nodes.py` for current patches made:
+
 ## architecture / data flow map
 
 ```

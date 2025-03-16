@@ -36,8 +36,12 @@ def optimize_embedding_order(embeddings: List[torch.Tensor]) -> List[int]:
     if len(embeddings) <= 1:
         return list(range(len(embeddings)))
     
-    # Calculate embedding centroids
-    means = [torch.mean(embed, dim=0).cpu().numpy() for embed in embeddings]
+    # Calculate embedding centroids, ensuring compatible dtype for numpy
+    means = []
+    for embed in embeddings:
+        # Convert to float32 before numpy conversion to handle all tensor types
+        mean_embed = torch.mean(embed, dim=0).to(torch.float32).cpu().numpy()
+        means.append(mean_embed)
     
     # Nearest neighbor ordering
     order = [0]  # Start with first prompt
@@ -73,7 +77,7 @@ def compute_transition_cost_matrix(embeddings: List[torch.Tensor]) -> np.ndarray
     cost_matrix = np.zeros((n, n), dtype=np.float32)
     
     # Calculate centroids for efficiency
-    means = [torch.mean(embed, dim=0).cpu().numpy() for embed in embeddings]
+    means = [torch.mean(embed, dim=0).to(torch.float32).cpu().numpy() for embed in embeddings]
     
     # Compute all pairwise distances
     for i in range(n):
