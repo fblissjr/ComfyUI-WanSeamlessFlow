@@ -169,25 +169,13 @@ def blend_embeddings(embed1, embed2, ratio, method="linear"):
     # Check for shape mismatch
     if embed1.shape[0] != embed2.shape[0]:
         # Normalize embeddings to make them compatible
-        normalized = harmonize_embeddings([embed1, embed2])
-
-        # debug shape after calling harmonize_embeddings:
-
-        log.info(
-            f"DEBUG: Before normalization - shapes: {[e.shape for e in result['prompt_embeds']]}"
-        )
         try:
-            result["prompt_embeds"] = harmonize_embeddings(
-                result["prompt_embeds"], strategy=normalization
-            )
-            print(
-                f"DEBUG: After normalization - shapes: {[e.shape for e in result['prompt_embeds']]}"
-            )
+            normalized = harmonize_embeddings([embed1, embed2])
+            embed1, embed2 = normalized
         except Exception as e:
-            log.info(f"DEBUG: Harmonization error: {str(e)}\n{traceback.format_exc()}")
-            log.info["blend_width"] = 0
-
-        embed1, embed2 = normalized
+            log.info(f"Cannot blend embeddings due to shape mismatch: {str(e)}")
+            # Fallback if we can't normalize
+            return embed1
 
     # Select interpolation function
     blend_func = getattr(BlendFunctions, method, BlendFunctions.linear)
