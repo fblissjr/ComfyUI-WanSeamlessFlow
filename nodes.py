@@ -1,50 +1,62 @@
 # WanSeamlessFlow/nodes.py
 
-import numpy as np
+from .blending import blend_embeddings, harmonize_embeddings
 import torch
 import comfy.model_management as mm
 from typing import List, Dict, Any, Tuple, Optional
-
-from .blending import blend_embeddings
-from .utils.optimization import optimize_embedding_order, compute_transition_cost_matrix
-from .visualization import create_transition_visualization
+import numpy as np
+import gc
 
 class WanSmartBlend:
-    """
-    Optimize text embeddings for seamless transitions between context windows.
-    
-    This node takes multiple text embeddings and:
-    1. Optionally reorders them using nearest-neighbor optimization
-    2. Adds blend parameters for smooth transitions
-    """
-    
     @classmethod
     def INPUT_TYPES(s):
         return {
             "required": {
                 "text_embeds": ("WANVIDEOTEXTEMBEDS",),
-                "blend_width": ("INT", {
-                    "default": 8, "min": 0, "max": 32, "step": 1, 
-                    "tooltip": "Width of transition zone in frames (latent space)"
-                }),
+                "blend_width": (
+                    "INT",
+                    {
+                        "default": 8,
+                        "min": 0,
+                        "max": 32,
+                        "step": 1,
+                        "tooltip": "Width of transition zone in frames (latent space)",
+                    },
+                ),
                 "blend_method": (
-                    ["linear", "smooth", "ease_in", "ease_out", "sine", "circ", "bounce"], 
+                    ["linear", "smooth", "ease_in", "ease_out", "sine", "circ"],
                     {
                         "default": "smooth",
-                        "tooltip": "Interpolation curve between prompts"
-                    }
+                        "tooltip": "Interpolation curve between prompts",
+                    },
+                ),
+                "normalization": (
+                    ["pad_or_truncate", "mean_pooling", "weighted_tokens"],
+                    {
+                        "default": "pad_or_truncate",
+                        "tooltip": "Method to harmonize different embedding shapes",
+                    },
                 ),
             },
             "optional": {
-                "optimize_order": ("BOOLEAN", {
-                    "default": True, 
-                    "tooltip": "Optimize embedding order to minimize semantic distance"
-                }),
-                "verbosity": ("INT", {
-                    "default": 1, "min": 0, "max": 3, "step": 1,
-                    "tooltip": "0: None, 1: Basic, 2: Detailed, 3: Debug"
-                }),
-            }
+                "optimize_order": (
+                    "BOOLEAN",
+                    {
+                        "default": True,
+                        "tooltip": "Optimize embedding order to minimize semantic distance",
+                    },
+                ),
+                "verbosity": (
+                    "INT",
+                    {
+                        "default": 1,
+                        "min": 0,
+                        "max": 3,
+                        "step": 1,
+                        "tooltip": "0: None, 1: Basic, 2: Detailed, 3: Debug",
+                    },
+                ),
+            },
         }
 
     RETURN_TYPES = ("WANVIDEOTEXTEMBEDS",)
@@ -53,24 +65,17 @@ class WanSmartBlend:
     CATEGORY = "WanSeamlessFlow"
     DESCRIPTION = "Prepares text embeddings for smooth transitions between context windows"
 
-    def process(self, 
-                text_embeds: Dict[str, Any], 
-                blend_width: int, 
-                blend_method: str,
-                optimize_order: bool = True,
-                verbosity: int = 1) -> Tuple[Dict[str, Any]]:
+    def process(
+        self,
+        text_embeds: Dict[str, Any],
+        blend_width: int,
+        blend_method: str,
+        normalization: str,
+        optimize_order: bool = True,
+        verbosity: int = 1,
+    ) -> Tuple[Dict[str, Any]]:
         """
         Process text embeddings for optimal transitions.
-        
-        Args:
-            text_embeds: Dictionary containing prompt embeddings
-            blend_width: Width of transition zone in frames
-            blend_method: Type of interpolation curve
-            optimize_order: Whether to optimize embedding order
-            verbosity: Level of debug information
-            
-        Returns:
-            Enhanced text embeddings with blend parameters
         """
         # Create a deep copy to avoid modifying original
         result = {}
@@ -81,42 +86,85 @@ class WanSmartBlend:
                 result[k] = v.clone()
             else:
                 result[k] = v
-        
-        # Skip optimization for single embedding
-        if len(result["prompt_embeds"]) <= 1 or not optimize_order:
-            if verbosity > 0 and len(result["prompt_embeds"]) <= 1:
-                print("WanSmartBlend: Only one prompt, skipping optimization")
-            # Still add blend parameters for interface consistency
+
+        # Skip processing for single embedding
+        if len(result["prompt_embeds"]) <= 1:
+            if verbosity > 0:
+                print("WanSmartBlend: Only one prompt, skipping processing")
             result["blend_width"] = blend_width
             result["blend_method"] = blend_method
+            result["normalization"] = normalization
             result["verbosity"] = verbosity
             return (result,)
-        
-        # Log the operation
-        if verbosity > 0:
-            print(f"WanSmartBlend: Optimizing {len(result['prompt_embeds'])} embeddings with blend width {blend_width}")
-        
-        # Compute cost matrix for visualization
-        if verbosity > 1:
-            cost_matrix = compute_transition_cost_matrix(result["prompt_embeds"])
-            print("\nTransition costs between prompts:")
-            for i in range(len(cost_matrix)):
-                print(f"  Prompt {i}: " + " ".join(f"{cost:.2f}" for cost in cost_matrix[i]))
-        
-        # Optimize embedding order
-        if optimize_order and len(result["prompt_embeds"]) > 1:
-            order = optimize_embedding_order(result["prompt_embeds"])
-            
-            # Apply the optimized ordering
-            result["prompt_embeds"] = [result["prompt_embeds"][i] for i in order]
-            
-            # Log the final order
+
+        # Check for shape inconsistencies
+        shapes = [embed.shape for embed in result["prompt_embeds"]]
+        if len(set(str(s) for s in shapes)) > 1:
             if verbosity > 0:
-                print(f"WanSmartBlend: Optimized prompt order: {order}")
+                print(f"WanSmartBlend: Detected varying embedding shapes: {shapes}")
+                print(
+                    f"WanSmartBlend: Normalizing embeddings for compatibility using '{normalization}' strategy..."
+                )
+
+            # Harmonize all embeddings to common shape
+            try:
+                result["prompt_embeds"] = harmonize_embeddings(
+                    result["prompt_embeds"], strategy=normalization
+                )
+
+                if verbosity > 0:
+                    new_shapes = [e.shape for e in result["prompt_embeds"]]
+                    print(f"WanSmartBlend: Successfully normalized to {new_shapes[0]}")
+            except Exception as e:
+                print(f"WanSmartBlend: Error during harmonization: {str(e)}")
+                # Reset to original if harmonization fails
+                result["blend_width"] = 0  # Disable blending
+
+        # Optimize embedding order if enabled
+        if optimize_order and len(result["prompt_embeds"]) > 1:
+            try:
+                # Calculate embedding centroids, ensuring compatible dtype for numpy
+                means = []
+                for embed in result["prompt_embeds"]:
+                    # Convert to float32 before numpy conversion to handle all tensor types
+                    mean_embed = (
+                        torch.mean(embed, dim=0).to(torch.float32).cpu().numpy()
+                    )
+                    means.append(mean_embed)
+
+                # Nearest neighbor ordering
+                order = [0]  # Start with first prompt
+                remaining = set(range(1, len(means)))
+
+                while remaining:
+                    curr, best_dist = order[-1], float("inf")
+                    best_next = None
+
+                    for i in remaining:
+                        # Calculate distance between current and candidate
+                        dist = np.sum((means[curr] - means[i]) ** 2)
+                        if dist < best_dist:
+                            best_dist, best_next = dist, i
+
+                    order.append(best_next)
+                    remaining.remove(best_next)
+
+                # Apply the optimized ordering
+                result["prompt_embeds"] = [result["prompt_embeds"][i] for i in order]
+
+                if verbosity > 0:
+                    print(f"WanSmartBlend: Optimized prompt order: {order}")
+            except Exception as e:
+                print(f"WanSmartBlend: Error during optimization: {str(e)}")
+
+        # Clean up memory
+        gc.collect()
+        mm.soft_empty_cache()
         
         # Add blend parameters to the result
         result["blend_width"] = blend_width
         result["blend_method"] = blend_method
+        result["normalization"] = normalization
         result["verbosity"] = verbosity
         
         return (result,)

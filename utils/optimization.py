@@ -25,7 +25,8 @@ def calc_embedding_distance(embed1, embed2):
 
 def optimize_embedding_order(embeddings: List[torch.Tensor]) -> List[int]:
     """
-    Optimize the order of embeddings to minimize semantic distance between consecutive prompts.
+    Optimize the order of embeddings to minimize semantic distance.
+    Handles all dtype formats including BFloat16.
     
     Args:
         embeddings: List of embedding tensors
@@ -36,15 +37,15 @@ def optimize_embedding_order(embeddings: List[torch.Tensor]) -> List[int]:
     if len(embeddings) <= 1:
         return list(range(len(embeddings)))
     
-    # Calculate embedding centroids, ensuring compatible dtype for numpy
+    # Calculate embedding centroids with proper dtype conversion
     means = []
     for embed in embeddings:
-        # Convert to float32 before numpy conversion to handle all tensor types
+        # Convert to float32 before numpy conversion for compatibility
         mean_embed = torch.mean(embed, dim=0).to(torch.float32).cpu().numpy()
         means.append(mean_embed)
     
     # Nearest neighbor ordering
-    order = [0]  # Start with first prompt
+    order = [0]
     remaining = set(range(1, len(means)))
     
     while remaining:
