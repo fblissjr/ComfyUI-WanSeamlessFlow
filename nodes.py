@@ -13,6 +13,7 @@ import gc
 from typing import List, Dict, Any, Tuple, Optional
 import comfy.model_management as mm
 import traceback
+from .wan_adaptive_flow import WanAdaptiveFlow
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
@@ -41,7 +42,15 @@ class WanSmartBlend:
                     },
                 ),
                 "blend_method": (
-                    ["linear", "smooth", "ease_in", "ease_out"],
+                    [
+                        "linear",
+                        "smooth",
+                        "ease_in",
+                        "ease_out",
+                        "sine",
+                        "circ",
+                        "bounce",
+                    ],
                     {
                         "default": "smooth",
                         "tooltip": "Interpolation curve between prompts",
@@ -429,9 +438,11 @@ class WanBlendVisualize:
 NODE_CLASS_MAPPINGS = {
     "WanSmartBlend": WanSmartBlend,
     "WanBlendVisualize": WanBlendVisualize,
+    "WanAdaptiveFlow": WanAdaptiveFlow,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "WanSmartBlend": "Wan Smart Blend",
     "WanBlendVisualize": "Wan Blend Visualize",
+    "WanAdaptiveFlow": "Wan Adaptive Flow",
 }
