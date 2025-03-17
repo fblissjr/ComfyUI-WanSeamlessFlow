@@ -3,7 +3,12 @@ import torch
 import math
 import comfy.model_management as mm
 import numpy as np
+import logging
 
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
+log = logging.getLogger(__name__)
 
 class BlendFunctions:
     """
@@ -165,13 +170,30 @@ def blend_embeddings(embed1, embed2, ratio, method="linear"):
     if embed1.shape[0] != embed2.shape[0]:
         # Normalize embeddings to make them compatible
         normalized = harmonize_embeddings([embed1, embed2])
+
+        # debug shape after calling harmonize_embeddings:
+
+        log.info(
+            f"DEBUG: Before normalization - shapes: {[e.shape for e in result['prompt_embeds']]}"
+        )
+        try:
+            result["prompt_embeds"] = harmonize_embeddings(
+                result["prompt_embeds"], strategy=normalization
+            )
+            print(
+                f"DEBUG: After normalization - shapes: {[e.shape for e in result['prompt_embeds']]}"
+            )
+        except Exception as e:
+            log.info(f"DEBUG: Harmonization error: {str(e)}\n{traceback.format_exc()}")
+            log.info["blend_width"] = 0
+
         embed1, embed2 = normalized
 
     # Select interpolation function
     blend_func = getattr(BlendFunctions, method, BlendFunctions.linear)
-    
+
     # Calculate interpolation factor
     factor = blend_func(ratio)
-    
+
     # Perform embedding interpolation
     return embed1 * (1 - factor) + embed2 * factor
